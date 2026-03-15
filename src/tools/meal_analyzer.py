@@ -13,7 +13,7 @@ class MealAnalyzer:
         )
         self.model = VISION_MODEL
 
-    def _encode_image(self, image_path):
+    def encode_image(self, image_path):
         image_path = Path(image_path)
         with open(image_path, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
@@ -23,7 +23,7 @@ class MealAnalyzer:
         Analyze a meal photo and return structured nutrition estimate.
         Returns dict with: foods, total_calories, protein, carbs, fat
         """
-        base64_image = self._encode_image(image_path)
+        base64_image = self.encode_image(image_path)
 
         response = self.client.chat.completions.create(
             model=self.model,
@@ -56,7 +56,7 @@ Respond ONLY with this exact JSON format, no other text:
                     ]
                 }
             ],
-            temperature=0.1,
+            temperature=0.1, # Low = deterministic, factual
         )
 
         raw = response.choices[0].message.content
