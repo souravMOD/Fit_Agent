@@ -1,8 +1,0 @@
-langchain 
-langchain-openai
-langgraph
-streamlit
-python-dotenv 
-rich
-pillow
-plotly
