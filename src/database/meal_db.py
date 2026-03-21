@@ -2,7 +2,7 @@ import sqlite3
 import json
 from datetime import datetime, date
 from pathlib import Path
-from src.config import DB_PATH
+from src.config import DB_PATH, DAILY_CALORIE_TARGET, DAILY_PROTEIN_TARGET, DAILY_CARBS_TARGET, DAILY_FAT_TARGET
 
 
 class MealDatabase:
@@ -13,8 +13,21 @@ class MealDatabase:
     def _init_db(self):
         conn = sqlite3.connect(self.db_path)
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS users (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                telegram_id TEXT UNIQUE,
+                name TEXT,
+                calorie_target INTEGER DEFAULT 2200,
+                protein_target INTEGER DEFAULT 150,
+                carbs_target INTEGER DEFAULT 250,
+                fat_target INTEGER DEFAULT 70,
+                created_at TEXT NOT NULL
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS meals (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
                 timestamp TEXT NOT NULL,
                 date TEXT NOT NULL,
                 meal_type TEXT,
@@ -24,21 +37,91 @@ class MealDatabase:
                 total_protein_g INTEGER,
                 total_carbs_g INTEGER,
                 total_fat_g INTEGER,
-                meal_description TEXT
+                meal_description TEXT,
+                FOREIGN KEY (user_id) REFERENCES users(id)
             )
         """)
         conn.commit()
         conn.close()
 
-    def log_meal(self, analysis, meal_type=None, image_path=None):
+    def get_or_create_user(self, telegram_id=None, name=None):
+        conn = sqlite3.connect(self.db_path)
+
+        if telegram_id:
+            cursor = conn.execute(
+                "SELECT id FROM users WHERE telegram_id = ?", (telegram_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                conn.close()
+                return row[0]
+
+        now = datetime.now().isoformat()
+        cursor = conn.execute(
+            """INSERT INTO users (telegram_id, name, calorie_target, protein_target,
+                                  carbs_target, fat_target, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                telegram_id,
+                name or "User",
+                DAILY_CALORIE_TARGET,
+                DAILY_PROTEIN_TARGET,
+                DAILY_CARBS_TARGET,
+                DAILY_FAT_TARGET,
+                now,
+            ),
+        )
+        conn.commit()
+        user_id = cursor.lastrowid
+        conn.close()
+        return user_id
+
+    def get_user_targets(self, user_id):
+        conn = sqlite3.connect(self.db_path)
+        cursor = conn.execute(
+            """SELECT calorie_target, protein_target, carbs_target, fat_target, name
+               FROM users WHERE id = ?""",
+            (user_id,),
+        )
+        row = cursor.fetchone()
+        conn.close()
+        if not row:
+            return None
+        return {
+            "calorie_target": row[0],
+            "protein_target": row[1],
+            "carbs_target": row[2],
+            "fat_target": row[3],
+            "name": row[4],
+        }
+
+    def update_user_targets(self, user_id, calories=None, protein=None, carbs=None, fat=None):
+        conn = sqlite3.connect(self.db_path)
+        targets = self.get_user_targets(user_id)
+        conn.execute(
+            """UPDATE users SET calorie_target=?, protein_target=?, carbs_target=?, fat_target=?
+               WHERE id=?""",
+            (
+                calories or targets["calorie_target"],
+                protein or targets["protein_target"],
+                carbs or targets["carbs_target"],
+                fat or targets["fat_target"],
+                user_id,
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+    def log_meal(self, user_id, analysis, meal_type=None, image_path=None):
         conn = sqlite3.connect(self.db_path)
         now = datetime.now()
         conn.execute(
             """INSERT INTO meals 
-            (timestamp, date, meal_type, image_path, foods, 
+            (user_id, timestamp, date, meal_type, image_path, foods, 
              total_calories, total_protein_g, total_carbs_g, total_fat_g, meal_description)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
+                user_id,
                 now.isoformat(),
                 now.strftime("%Y-%m-%d"),
                 meal_type,
@@ -55,15 +138,15 @@ class MealDatabase:
         conn.close()
         return {"status": "logged", "calories": analysis.get("total_calories", 0)}
 
-    def get_daily_summary(self, target_date=None):
+    def get_daily_summary(self, user_id, target_date=None):
         if target_date is None:
             target_date = date.today().isoformat()
         conn = sqlite3.connect(self.db_path)
         cursor = conn.execute(
             """SELECT total_calories, total_protein_g, total_carbs_g, total_fat_g,
                       meal_description, meal_type, timestamp
-               FROM meals WHERE date = ? ORDER BY timestamp""",
-            (target_date,),
+               FROM meals WHERE user_id = ? AND date = ? ORDER BY timestamp""",
+            (user_id, target_date),
         )
         meals = cursor.fetchall()
         conn.close()
@@ -106,7 +189,7 @@ class MealDatabase:
             "meal_count": len(meals),
         }
 
-    def get_weekly_history(self):
+    def get_weekly_history(self, user_id):
         conn = sqlite3.connect(self.db_path)
         cursor = conn.execute(
             """SELECT date, 
@@ -114,8 +197,9 @@ class MealDatabase:
                       SUM(total_carbs_g), SUM(total_fat_g),
                       COUNT(*)
                FROM meals 
-               WHERE date >= date('now', '-7 days')
+               WHERE user_id = ? AND date >= date('now', '-7 days')
                GROUP BY date ORDER BY date""",
+            (user_id,),
         )
         rows = cursor.fetchall()
         conn.close()
