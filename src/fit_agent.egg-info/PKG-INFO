@@ -14,6 +14,8 @@ Requires-Dist: plotly>=5.24.0
 Requires-Dist: pillow>=10.4.0
 Requires-Dist: python-dotenv>=1.0.0
 Requires-Dist: rich>=13.0.0
+Requires-Dist: python-telegram-bot
+Requires-Dist: mlflow
 Provides-Extra: dev
 Requires-Dist: pytest>=8.0.0; extra == "dev"
 Requires-Dist: ruff>=0.6.0; extra == "dev"

@@ -3,10 +3,16 @@ pyproject.toml
 src/__init__.py
 src/config.py
 src/agent/__init__.py
+src/agent/graph.py
 src/database/__init__.py
+src/database/meal_db.py
 src/fit_agent.egg-info/PKG-INFO
 src/fit_agent.egg-info/SOURCES.txt
 src/fit_agent.egg-info/dependency_links.txt
 src/fit_agent.egg-info/requires.txt
 src/fit_agent.egg-info/top_level.txt
 src/tools/__init__.py
+src/tools/agent_tools.py
+src/tools/meal_analyzer.py
+src/tracking/__init__.py
+src/tracking/mlflow_tracker.py

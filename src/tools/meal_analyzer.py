@@ -61,16 +61,26 @@ Respond ONLY with this exact JSON format, no other text:
 
         raw = response.choices[0].message.content
 
-        # Parse JSON from response (LLaVA sometimes adds extra text)
+        # Clean up common LLM JSON issues
+        def clean_json(text):
+            import re
+            # Remove trailing commas before } or ]
+            text = re.sub(r',\s*}', '}', text)
+            text = re.sub(r',\s*]', ']', text)
+            return text
+
+        # Parse JSON from response
         try:
-            # Try direct parse first
-            return json.loads(raw)
+            return json.loads(clean_json(raw))
         except json.JSONDecodeError:
             # Find JSON block in the response
             start = raw.find("{")
             end = raw.rfind("}") + 1
             if start != -1 and end > start:
-                return json.loads(raw[start:end])
+                try:
+                    return json.loads(clean_json(raw[start:end]))
+                except json.JSONDecodeError:
+                    pass
             # If all parsing fails, return raw as description
             return {
                 "foods": [],
