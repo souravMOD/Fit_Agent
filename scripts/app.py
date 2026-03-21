@@ -104,9 +104,12 @@ for msg in st.session_state.messages:
             st.image(msg["image"], width=300)
 
 # Image upload
+# Image upload
 uploaded_file = st.file_uploader("📷 Upload meal photo", type=["jpg", "jpeg", "png"], key="uploader")
 
-if uploaded_file:
+if uploaded_file and "last_uploaded" not in st.session_state:
+    st.session_state.last_uploaded = uploaded_file.name
+
     # Save image
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     image_path = MEAL_IMAGES_DIR / f"meal_{timestamp}_{uploaded_file.name}"
@@ -119,31 +122,28 @@ if uploaded_file:
         "content": "I just ate this meal. Please analyze and log it.",
         "image": str(image_path),
     })
-    with st.chat_message("user"):
-        st.image(str(image_path), width=300)
-        st.markdown("I just ate this meal. Please analyze and log it.")
 
     # Run agent
-    with st.chat_message("assistant"):
-        with st.spinner("Analyzing your meal..."):
-            user_id = st.session_state.user_id
-            result = agent.invoke({
-                "messages": [{
-                    "role": "user",
-                    "content": f"User ID: {user_id}. I just ate this meal. Please analyze and log it. Image path: {image_path}"
-                }]
-            })
+    user_id = st.session_state.user_id
+    result = agent.invoke({
+        "messages": [{
+            "role": "user",
+            "content": f"User ID: {user_id}. I just ate this meal. Please analyze and log it. Image path: {image_path}"
+        }]
+    })
 
-            # Get the final response
-            response = ""
-            for msg in result["messages"]:
-                if hasattr(msg, "content") and msg.content and not hasattr(msg, "tool_calls"):
-                    response = msg.content
-
-            st.markdown(response)
+    response = ""
+    for msg in result["messages"]:
+        if hasattr(msg, "content") and msg.content and not hasattr(msg, "tool_calls"):
+            response = msg.content
 
     st.session_state.messages.append({"role": "assistant", "content": response})
     st.rerun()
+
+elif not uploaded_file:
+    # Reset when file is cleared so user can upload again
+    if "last_uploaded" in st.session_state:
+        del st.session_state.last_uploaded
 
 # Text chat input
 if prompt := st.chat_input("Ask about your nutrition..."):
