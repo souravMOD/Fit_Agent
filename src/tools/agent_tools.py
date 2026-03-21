@@ -2,6 +2,10 @@ import json
 from langchain_core.tools import tool
 from src.tools.meal_analyzer import MealAnalyzer
 from src.database.meal_db import MealDatabase
+import time
+from src.tracking.mlflow_tracker import FitAgentTracker
+
+tracker = FitAgentTracker()
 
 db = MealDatabase()
 analyzer = MealAnalyzer()
@@ -23,15 +27,18 @@ def analyze_and_log_meal(image_path: str, meal_type: str = "meal") -> str:
         image_path: Path to the meal image file
         meal_type: One of breakfast, lunch, dinner, snack
     """
+    start_time = time.time()
     result = analyzer.analyze(image_path)
+    latency = time.time() - start_time
 
-    # Auto-log to database
+    # Log to database
     db.log_meal(_current_user_id, result, meal_type=meal_type)
 
-    # Return analysis for the agent to discuss
+    # Track with MLflow
+    tracker.log_meal_analysis(image_path, result, latency)
+
     result["status"] = "analyzed_and_logged"
     return json.dumps(result, indent=2)
-
 
 @tool
 def log_meal(calories: int, protein_g: int, carbs_g: int, fat_g: int, description: str, meal_type: str = "meal") -> str:
@@ -58,15 +65,12 @@ def log_meal(calories: int, protein_g: int, carbs_g: int, fat_g: int, descriptio
 
 
 @tool
-def get_daily_summary(target_date: str = None) -> str:
+def get_daily_summary() -> str:
     """Get today's nutrition summary.
     Use this when the user asks about today's intake or progress.
-    Args:
-        target_date: Date in YYYY-MM-DD format, defaults to today
     """
-    summary = db.get_daily_summary(_current_user_id, target_date)
+    summary = db.get_daily_summary(_current_user_id)
     return json.dumps(summary, indent=2)
-
 
 @tool
 def get_weekly_history() -> str:
