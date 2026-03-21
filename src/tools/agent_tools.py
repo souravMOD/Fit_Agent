@@ -1,9 +1,13 @@
 import json
+import time
 from langchain_core.tools import tool
 from src.tools.meal_analyzer import MealAnalyzer
 from src.database.meal_db import MealDatabase
-import time
 from src.tracking.mlflow_tracker import FitAgentTracker
+from src.utils.logger import get_logger
+from src.utils.exception import MealAnalysisError, MealLoggingError, UserNotFoundError
+
+log = get_logger(__name__)
 
 tracker = FitAgentTracker()
 
@@ -27,12 +31,21 @@ def analyze_and_log_meal(image_path: str, meal_type: str = "meal") -> str:
         image_path: Path to the meal image file
         meal_type: One of breakfast, lunch, dinner, snack
     """
+    log.info("analyze_and_log_meal called: image=%s type=%s user=%s", image_path, meal_type, _current_user_id)
     start_time = time.time()
-    result = analyzer.analyze(image_path)
+    try:
+        result = analyzer.analyze(image_path)
+    except MealAnalysisError:
+        raise
+    except Exception as e:
+        raise MealAnalysisError(f"Unexpected error analyzing {image_path}: {e}") from e
     latency = time.time() - start_time
 
-    # Log to database
-    db.log_meal(_current_user_id, result, meal_type=meal_type)
+    try:
+        db.log_meal(_current_user_id, result, meal_type=meal_type)
+    except Exception as e:
+        raise MealLoggingError(f"Failed to log meal for user {_current_user_id}: {e}") from e
+    log.info("Meal logged to DB for user %s (%.2fs)", _current_user_id, latency)
 
     # Track with MLflow
     tracker.log_meal_analysis(image_path, result, latency)
@@ -69,6 +82,7 @@ def get_daily_summary() -> str:
     """Get today's nutrition summary.
     Use this when the user asks about today's intake or progress.
     """
+    log.debug("get_daily_summary called for user %s", _current_user_id)
     summary = db.get_daily_summary(_current_user_id)
     return json.dumps(summary, indent=2)
 
@@ -77,6 +91,7 @@ def get_weekly_history() -> str:
     """Get the last 7 days of nutrition data.
     Use this when the user asks about their week or trends.
     """
+    log.debug("get_weekly_history called for user %s", _current_user_id)
     history = db.get_weekly_history(_current_user_id)
     return json.dumps(history, indent=2)
 
@@ -86,11 +101,13 @@ def check_goals() -> str:
     """Check how current daily intake compares to targets.
     Use this to give feedback on whether the user is on track.
     """
-    targets = db.get_user_targets(_current_user_id)
-    summary = db.get_daily_summary(_current_user_id)
-
-    if not targets:
+    log.debug("check_goals called for user %s", _current_user_id)
+    try:
+        targets = db.get_user_targets(_current_user_id)
+    except UserNotFoundError:
+        log.warning("check_goals: user %s not found", _current_user_id)
         return json.dumps({"error": "User not found"})
+    summary = db.get_daily_summary(_current_user_id)
 
     remaining = {
         "calories_remaining": targets["calorie_target"] - summary["total_calories"],

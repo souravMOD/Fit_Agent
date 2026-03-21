@@ -1,0 +1,36 @@
+services:
+  streamlit:
+    build: .
+    container_name: fitagent-ui
+    ports:
+      - "8501:8501"
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
+    volumes:
+      - fitagent_data:/app/data
+    restart: unless-stopped
+
+  telegram-bot:
+    build: .
+    container_name: fitagent-bot
+    command: python scripts/telegram_bot.py
+    environment:
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434/v1
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+    volumes:
+      - fitagent_data:/app/data
+    restart: unless-stopped
+
+  mlflow:
+    build: .
+    container_name: fitagent-mlflow
+    command: mlflow ui --host 0.0.0.0 --port 5000
+    ports:
+      - "5000:5000"
+    volumes:
+      - fitagent_mlruns:/app/mlruns
+    restart: unless-stopped
+
+volumes:
+  fitagent_data:
+  fitagent_mlruns:

@@ -102,6 +102,12 @@ cp .env.example .env
 streamlit run scripts/app.py
 ```
 
+### Option 4: Pull from Docker Hub
+```bash
+docker pull souravmodak/fitagent:latest
+docker run -p 8501:8501 -e OLLAMA_BASE_URL=http://host.docker.internal:11434/v1 souravmodak/fitagent:latest
+```
+
 ## Makefile Commands
 
 | Command | What it does |

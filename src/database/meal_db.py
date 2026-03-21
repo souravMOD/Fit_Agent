@@ -3,15 +3,23 @@ import json
 from datetime import datetime, date
 from pathlib import Path
 from src.config import DB_PATH, DAILY_CALORIE_TARGET, DAILY_PROTEIN_TARGET, DAILY_CARBS_TARGET, DAILY_FAT_TARGET
+from src.utils.logger import get_logger
+from src.utils.exception import DatabaseError, UserNotFoundError
+
+log = get_logger(__name__)
 
 
 class MealDatabase:
     def __init__(self, db_path=None):
         self.db_path = str(db_path or DB_PATH)
+        log.debug("MealDatabase using path: %s", self.db_path)
         self._init_db()
 
     def _init_db(self):
-        conn = sqlite3.connect(self.db_path)
+        try:
+            conn = sqlite3.connect(self.db_path)
+        except sqlite3.Error as e:
+            raise DatabaseError(f"Cannot open database at {self.db_path}: {e}") from e
         conn.execute("""
             CREATE TABLE IF NOT EXISTS users (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -74,6 +82,7 @@ class MealDatabase:
         conn.commit()
         user_id = cursor.lastrowid
         conn.close()
+        log.info("Created new user id=%s telegram_id=%s", user_id, telegram_id)
         return user_id
 
     def get_user_targets(self, user_id):
@@ -86,7 +95,7 @@ class MealDatabase:
         row = cursor.fetchone()
         conn.close()
         if not row:
-            return None
+            raise UserNotFoundError(f"No user found with id={user_id}")
         return {
             "calorie_target": row[0],
             "protein_target": row[1],
@@ -136,6 +145,7 @@ class MealDatabase:
         )
         conn.commit()
         conn.close()
+        log.info("Meal logged: user=%s type=%s cal=%s", user_id, meal_type, analysis.get("total_calories", 0))
         return {"status": "logged", "calories": analysis.get("total_calories", 0)}
 
     def get_daily_summary(self, user_id, target_date=None):

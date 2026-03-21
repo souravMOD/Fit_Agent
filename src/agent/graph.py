@@ -8,6 +8,10 @@ from src.tools.agent_tools import (
     get_weekly_history,
     check_goals,
 )
+from src.utils.logger import get_logger
+from src.utils.exception import AgentError
+
+log = get_logger(__name__)
 
 tools = [analyze_and_log_meal, get_daily_summary, get_weekly_history, check_goals]
 
@@ -42,7 +46,16 @@ The current user's ID is provided in each message."""
 def agent_node(state: MessagesState):
     """The agent: reads messages, decides what to do."""
     messages = [{"role": "system", "content": SYSTEM_PROMPT}] + state["messages"]
-    response = llm.invoke(messages)
+    log.debug("Invoking LLM with %d messages", len(messages))
+    try:
+        response = llm.invoke(messages)
+    except Exception as e:
+        raise AgentError(f"LLM invocation failed: {e}") from e
+    tool_calls = getattr(response, "tool_calls", [])
+    if tool_calls:
+        log.info("LLM requested tools: %s", [tc["name"] for tc in tool_calls])
+    else:
+        log.debug("LLM returned direct response (%d chars)", len(response.content))
     return {"messages": [response]}
 
 
@@ -70,7 +83,9 @@ def build_graph():
     graph.add_conditional_edges("agent", tools_condition)
     graph.add_edge("tools", "agent")
 
-    return graph.compile()
+    compiled = graph.compile()
+    log.info("Agent graph compiled successfully")
+    return compiled
 
 
 # Build once, reuse

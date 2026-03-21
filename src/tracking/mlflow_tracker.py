@@ -1,11 +1,15 @@
 import mlflow
 import time
 from datetime import datetime
+from src.utils.logger import get_logger
+
+log = get_logger(__name__)
 
 
 class FitAgentTracker:
     def __init__(self, experiment_name="fitagent"):
         mlflow.set_experiment(experiment_name)
+        log.debug("MLflow experiment set to '%s'", experiment_name)
 
     def log_meal_analysis(self, image_path, analysis, latency_seconds):
         """Log each meal analysis for tracking LLaVA performance."""
@@ -27,11 +31,12 @@ class FitAgentTracker:
             # Log the image as artifact
             try:
                 mlflow.log_artifact(str(image_path))
-            except Exception:
-                pass
+            except Exception as e:
+                log.warning("Could not log image artifact to MLflow: %s", e)
 
     def log_agent_interaction(self, user_query, tools_called, response_length, latency_seconds):
         """Log agent interactions for monitoring tool usage patterns."""
+        log.info("Agent interaction: tools=%s latency=%.2fs", tools_called, latency_seconds)
         with mlflow.start_run(run_name=f"agent_{datetime.now().strftime('%Y%m%d_%H%M%S')}"):
             mlflow.log_metric("response_length", response_length)
             mlflow.log_metric("latency_seconds", latency_seconds)
