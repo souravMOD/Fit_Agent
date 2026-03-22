@@ -366,11 +366,11 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    app.job_queue.run_daily(
-        daily_notification,
-        time=dt_time(hour=21, minute=0, second=0),
-        name="daily_summary",
-    )
+    # app.job_queue.run_daily(
+    #     daily_notification,
+    #     time=dt_time(hour=21, minute=0, second=0),
+    #     name="daily_summary",
+    # )
 
     print("Bot is running! Daily notifications scheduled for 9 PM.")
     app.run_polling()
