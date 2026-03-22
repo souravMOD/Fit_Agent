@@ -15,22 +15,100 @@ from src.config import TELEGRAM_BOT_TOKEN, MEAL_IMAGES_DIR
 MEAL_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
 db = MealDatabase()
 
+from telegram.ext import ConversationHandler
+
+# Conversation states
+ASKING_CALORIES, ASKING_PROTEIN, ASKING_CARBS, ASKING_FAT = range(4)
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = str(update.effective_user.id)
     name = update.effective_user.first_name or "User"
     user_id = db.get_or_create_user(telegram_id=telegram_id, name=name)
+    context.user_data["user_id"] = user_id
+
+    # Check if user already has custom targets
+    targets = db.get_user_targets(user_id)
+    if targets and targets.get("calorie_target") != 2200:
+        await update.message.reply_text(
+            f"Welcome back {name}! 💪\n"
+            f"Your targets: {targets['calorie_target']} kcal, {targets['protein_target']}g protein\n\n"
+            f"Send me a meal photo or type /help"
+        )
+        return ConversationHandler.END
 
     await update.message.reply_text(
-        f"Hey {name}! 💪 I'm FitAgent.\n\n"
-        f"Send me a photo of your meal and I'll track your nutrition.\n\n"
-        f"Commands:\n"
-        f"/today - Today's summary\n"
-        f"/week - Weekly trends\n"
-        f"/goals - Check progress vs targets\n"
-        f"/help - Show this message"
+        f"Hey {name}! 💪 Let's set up your nutrition targets.\n\n"
+        f"What's your daily calorie target? (e.g. 2000)"
     )
+    return ASKING_CALORIES
 
+
+async def set_calories(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        calories = int(update.message.text.strip())
+        if calories < 500 or calories > 10000:
+            await update.message.reply_text("Please enter a number between 500 and 10000:")
+            return ASKING_CALORIES
+        context.user_data["cal_target"] = calories
+        await update.message.reply_text(f"Got it: {calories} kcal/day.\n\nDaily protein target in grams? (e.g. 150)")
+        return ASKING_PROTEIN
+    except ValueError:
+        await update.message.reply_text("Please enter a number (e.g. 2000):")
+        return ASKING_CALORIES
+
+
+async def set_protein(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        protein = int(update.message.text.strip())
+        context.user_data["pro_target"] = protein
+        await update.message.reply_text(f"Protein: {protein}g/day.\n\nDaily carbs target in grams? (e.g. 250)")
+        return ASKING_CARBS
+    except ValueError:
+        await update.message.reply_text("Please enter a number (e.g. 150):")
+        return ASKING_PROTEIN
+
+
+async def set_carbs(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        carbs = int(update.message.text.strip())
+        context.user_data["carb_target"] = carbs
+        await update.message.reply_text(f"Carbs: {carbs}g/day.\n\nDaily fat target in grams? (e.g. 70)")
+        return ASKING_FAT
+    except ValueError:
+        await update.message.reply_text("Please enter a number (e.g. 250):")
+        return ASKING_CARBS
+
+
+async def set_fat(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    try:
+        fat = int(update.message.text.strip())
+        user_id = context.user_data["user_id"]
+        db.update_user_targets(
+            user_id,
+            calories=context.user_data["cal_target"],
+            protein=context.user_data["pro_target"],
+            carbs=context.user_data["carb_target"],
+            fat=fat,
+        )
+        await update.message.reply_text(
+            f"All set! Your daily targets:\n"
+            f"🔥 {context.user_data['cal_target']} kcal\n"
+            f"🥩 {context.user_data['pro_target']}g protein\n"
+            f"🍞 {context.user_data['carb_target']}g carbs\n"
+            f"🧈 {fat}g fat\n\n"
+            f"Send me a meal photo to start tracking! 📷\n"
+            f"Use /settings to change targets later."
+        )
+        return ConversationHandler.END
+    except ValueError:
+        await update.message.reply_text("Please enter a number (e.g. 70):")
+        return ASKING_FAT
+
+
+async def cancel(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text("Setup cancelled. Using default targets. Type /start to try again.")
+    return ConversationHandler.END
 
 async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     telegram_id = str(update.effective_user.id)
@@ -168,8 +246,20 @@ def main():
     print("Starting FitAgent Telegram bot...")
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
 
+    # Onboarding conversation
+    onboarding = ConversationHandler(
+        entry_points=[CommandHandler("start", start), CommandHandler("settings", start)],
+        states={
+            ASKING_CALORIES: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_calories)],
+            ASKING_PROTEIN: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_protein)],
+            ASKING_CARBS: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_carbs)],
+            ASKING_FAT: [MessageHandler(filters.TEXT & ~filters.COMMAND, set_fat)],
+        },
+        fallbacks=[CommandHandler("cancel", cancel)],
+    )
+    app.add_handler(onboarding)
+
     # Commands
-    app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("help", start))
     app.add_handler(CommandHandler("today", today_command))
     app.add_handler(CommandHandler("week", week_command))
@@ -179,7 +269,7 @@ def main():
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
 
-    print("Bot is running! Send a meal photo on Telegram.")
+    print("Bot is running!")
     app.run_polling()
 
 
