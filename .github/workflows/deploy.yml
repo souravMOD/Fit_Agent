@@ -1,0 +1,23 @@
+name: Deploy to Oracle Cloud
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to VM
+        uses: appleboy/ssh-action@v1
+        with:
+          host: 130.61.236.188
+          username: ubuntu
+          key: ${{ secrets.ORACLE_SSH_KEY }}
+          script: |
+            cd /home/ubuntu/Fit_Agent
+            git pull origin main
+            source .venv/bin/activate
+            pip install -e . --quiet
+            sudo systemctl restart fitagent
+            echo "Deployed successfully!"
