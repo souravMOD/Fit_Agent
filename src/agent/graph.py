@@ -4,6 +4,7 @@ from langgraph.prebuilt import ToolNode, tools_condition
 from src.config import OLLAMA_BASE_URL, LLM_MODEL, LLM_TEMPERATURE
 from src.tools.agent_tools import (
     analyze_and_log_meal,
+    log_meal_manually,
     correct_last_meal,
     get_daily_summary,
     get_weekly_history,
@@ -11,7 +12,8 @@ from src.tools.agent_tools import (
     check_goals,
 )
 
-tools = [analyze_and_log_meal, correct_last_meal, get_daily_summary, get_weekly_history, get_meal_history, check_goals]
+tools = [analyze_and_log_meal, log_meal_manually, correct_last_meal, get_daily_summary, get_weekly_history, get_meal_history, check_goals]
+
 from src.utils.logger import get_logger
 from src.utils.exception import AgentError
 

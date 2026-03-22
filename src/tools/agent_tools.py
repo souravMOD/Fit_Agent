@@ -7,17 +7,14 @@ from src.tracking.mlflow_tracker import FitAgentTracker
 from src.utils.logger import get_logger
 from src.utils.exception import MealAnalysisError, MealLoggingError, UserNotFoundError
 from src.tracking.data_monitor import DataMonitor
+from src.tracking.metrics import MEALS_ANALYZED, MEALS_LOGGED, ANALYSIS_LATENCY, CALORIE_ESTIMATE, ERRORS
 
 monitor = DataMonitor()
-
 log = get_logger(__name__)
-
 tracker = FitAgentTracker()
-
 db = MealDatabase()
 analyzer = MealAnalyzer()
 
-# This gets set before each agent call
 _current_user_id = 1
 
 
@@ -39,10 +36,17 @@ def analyze_and_log_meal(image_path: str, meal_type: str = "meal") -> str:
     try:
         result = analyzer.analyze(image_path)
     except MealAnalysisError:
+        ERRORS.labels(error_type="analysis").inc()
         raise
     except Exception as e:
+        ERRORS.labels(error_type="analysis").inc()
         raise MealAnalysisError(f"Unexpected error analyzing {image_path}: {e}") from e
     latency = time.time() - start_time
+
+    # Metrics for analysis
+    ANALYSIS_LATENCY.observe(latency)
+    CALORIE_ESTIMATE.observe(result.get("total_calories", 0))
+    MEALS_ANALYZED.labels(user_id=str(_current_user_id)).inc()
 
     # Validate the analysis
     is_valid, warnings = monitor.validate_meal(result)
@@ -56,9 +60,12 @@ def analyze_and_log_meal(image_path: str, meal_type: str = "meal") -> str:
     except Exception as e:
         log.warning("WhyLogs monitoring failed: %s", e)
 
+    # Log to database
     try:
         db.log_meal(_current_user_id, result, meal_type=meal_type)
+        MEALS_LOGGED.labels(user_id=str(_current_user_id)).inc()
     except Exception as e:
+        ERRORS.labels(error_type="database").inc()
         raise MealLoggingError(f"Failed to log meal for user {_current_user_id}: {e}") from e
     log.info("Meal logged to DB for user %s (%.2fs)", _current_user_id, latency)
 
@@ -71,10 +78,11 @@ def analyze_and_log_meal(image_path: str, meal_type: str = "meal") -> str:
     result["status"] = "analyzed_and_logged"
     return json.dumps(result, indent=2)
 
+
 @tool
-def log_meal(calories: int, protein_g: int, carbs_g: int, fat_g: int, description: str, meal_type: str = "meal") -> str:
-    """Log a meal to the database after analyzing it.
-    Use this after analyze_meal_image to save the results.
+def log_meal_manually(calories: int, protein_g: int, carbs_g: int, fat_g: int, description: str, meal_type: str = "meal") -> str:
+    """Log a meal manually without a photo.
+    Use this when the user tells you what they ate without sending an image.
     Args:
         calories: Total calories
         protein_g: Grams of protein
@@ -83,6 +91,7 @@ def log_meal(calories: int, protein_g: int, carbs_g: int, fat_g: int, descriptio
         description: Brief description of the meal
         meal_type: One of breakfast, lunch, dinner, snack
     """
+    log.info("log_meal_manually called: %s %d cal user=%s", description, calories, _current_user_id)
     analysis = {
         "total_calories": calories,
         "total_protein_g": protein_g,
@@ -91,7 +100,12 @@ def log_meal(calories: int, protein_g: int, carbs_g: int, fat_g: int, descriptio
         "foods": [],
         "meal_description": description,
     }
-    result = db.log_meal(_current_user_id, analysis, meal_type=meal_type)
+    try:
+        result = db.log_meal(_current_user_id, analysis, meal_type=meal_type)
+        MEALS_LOGGED.labels(user_id=str(_current_user_id)).inc()
+    except Exception as e:
+        ERRORS.labels(error_type="database").inc()
+        raise MealLoggingError(f"Failed to log meal: {e}") from e
     return json.dumps(result)
 
 
@@ -103,6 +117,7 @@ def get_daily_summary() -> str:
     log.debug("get_daily_summary called for user %s", _current_user_id)
     summary = db.get_daily_summary(_current_user_id)
     return json.dumps(summary, indent=2)
+
 
 @tool
 def get_weekly_history() -> str:
@@ -143,6 +158,7 @@ def check_goals() -> str:
     }
     return json.dumps(remaining, indent=2)
 
+
 @tool
 def correct_last_meal(calories: int = None, protein_g: int = None, carbs_g: int = None, fat_g: int = None) -> str:
     """Correct the most recently logged meal's nutrition values.
@@ -153,7 +169,9 @@ def correct_last_meal(calories: int = None, protein_g: int = None, carbs_g: int 
         carbs_g: Corrected carbs in grams (optional)
         fat_g: Corrected fat in grams (optional)
     """
-    conn = __import__('sqlite3').connect(db.db_path)
+    import sqlite3
+    log.info("correct_last_meal called for user %s", _current_user_id)
+    conn = sqlite3.connect(db.db_path)
     cursor = conn.execute(
         "SELECT id, total_calories, total_protein_g, total_carbs_g, total_fat_g, meal_description FROM meals WHERE user_id = ? ORDER BY id DESC LIMIT 1",
         (_current_user_id,),
@@ -178,14 +196,16 @@ def correct_last_meal(calories: int = None, protein_g: int = None, carbs_g: int 
     conn.commit()
     conn.close()
 
+    log.info("Meal corrected: %d -> %d cal", old_cal, new_cal)
     return json.dumps({
         "status": "corrected",
         "meal": row[5],
         "old_calories": old_cal,
         "new_calories": new_cal,
     })
-    
-    @tool
+
+
+@tool
 def get_meal_history(limit: int = 5) -> str:
     """Get the most recent meals with details.
     Use this when the user asks about their recent meals or meal history.
@@ -193,6 +213,7 @@ def get_meal_history(limit: int = 5) -> str:
         limit: Number of recent meals to return
     """
     import sqlite3
+    log.debug("get_meal_history called for user %s", _current_user_id)
     conn = sqlite3.connect(db.db_path)
     cursor = conn.execute(
         """SELECT total_calories, total_protein_g, total_carbs_g, total_fat_g,
