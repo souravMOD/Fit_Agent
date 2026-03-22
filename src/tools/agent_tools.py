@@ -6,6 +6,9 @@ from src.database.meal_db import MealDatabase
 from src.tracking.mlflow_tracker import FitAgentTracker
 from src.utils.logger import get_logger
 from src.utils.exception import MealAnalysisError, MealLoggingError, UserNotFoundError
+from src.tracking.data_monitor import DataMonitor
+
+monitor = DataMonitor()
 
 log = get_logger(__name__)
 
@@ -41,6 +44,18 @@ def analyze_and_log_meal(image_path: str, meal_type: str = "meal") -> str:
         raise MealAnalysisError(f"Unexpected error analyzing {image_path}: {e}") from e
     latency = time.time() - start_time
 
+    # Validate the analysis
+    is_valid, warnings = monitor.validate_meal(result)
+    if warnings:
+        log.warning("Meal validation warnings: %s", warnings)
+        result["warnings"] = warnings
+
+    # Log to WhyLogs monitor
+    try:
+        monitor.log_meal_analysis(result)
+    except Exception as e:
+        log.warning("WhyLogs monitoring failed: %s", e)
+
     try:
         db.log_meal(_current_user_id, result, meal_type=meal_type)
     except Exception as e:
@@ -48,7 +63,10 @@ def analyze_and_log_meal(image_path: str, meal_type: str = "meal") -> str:
     log.info("Meal logged to DB for user %s (%.2fs)", _current_user_id, latency)
 
     # Track with MLflow
-    tracker.log_meal_analysis(image_path, result, latency)
+    try:
+        tracker.log_meal_analysis(image_path, result, latency)
+    except Exception as e:
+        log.warning("MLflow tracking failed: %s", e)
 
     result["status"] = "analyzed_and_logged"
     return json.dumps(result, indent=2)
@@ -124,3 +142,4 @@ def check_goals() -> str:
         },
     }
     return json.dumps(remaining, indent=2)
+

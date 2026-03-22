@@ -1,3 +1,4 @@
+LICENSE
 README.md
 pyproject.toml
 src/__init__.py
@@ -16,3 +17,7 @@ src/tools/agent_tools.py
 src/tools/meal_analyzer.py
 src/tracking/__init__.py
 src/tracking/mlflow_tracker.py
+src/utils/__init__.py
+src/utils/exception.py
+src/utils/logger.py
+tests/test_database.py
