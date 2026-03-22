@@ -21,7 +21,9 @@ dependencies = [
     "python-telegram-bot>=21.0",
     "mlflow>=2.16.0",
     "rich>=13.0.0",
-    "whylogs"
+    "whylogs",
+    "prometheus-client",
+    "groq"
 ]
 
 [project.optional-dependencies]

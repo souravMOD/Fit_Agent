@@ -1,45 +1,109 @@
 import base64
 import json
+import re
+import logging
 from pathlib import Path
 from openai import OpenAI
-from src.config import OLLAMA_BASE_URL, VISION_MODEL
-from src.utils.logger import get_logger
-from src.utils.exception import MealAnalysisError
+from src.config import (
+    OLLAMA_BASE_URL, VISION_MODEL,
+    DEPLOYMENT_MODE, GROQ_API_KEY, GROQ_BASE_URL, GROQ_VISION_MODEL,
+)
 
-log = get_logger(__name__)
+log = logging.getLogger(__name__)
 
 
 class MealAnalyzer:
     def __init__(self):
-        self.client = OpenAI(
-            base_url=OLLAMA_BASE_URL,
-            api_key="not-needed",
-        )
-        self.model = VISION_MODEL
-        log.debug("MealAnalyzer initialized with model=%s", self.model)
+        if DEPLOYMENT_MODE == "cloud":
+            self.client = OpenAI(
+                base_url=GROQ_BASE_URL,
+                api_key=GROQ_API_KEY,
+            )
+            self.model = GROQ_VISION_MODEL
+            log.info(f"MealAnalyzer using Groq: {self.model}")
+        else:
+            self.client = OpenAI(
+                base_url=OLLAMA_BASE_URL,
+                api_key="not-needed",
+            )
+            self.model = VISION_MODEL
+            log.info(f"MealAnalyzer using Ollama: {self.model}")
 
-    def encode_image(self, image_path):
+    def _encode_image(self, image_path):
         image_path = Path(image_path)
+        if not image_path.exists():
+            raise FileNotFoundError(f"Image not found: {image_path}")
         with open(image_path, "rb") as f:
             return base64.b64encode(f.read()).decode("utf-8")
+
+    def _clean_json(self, text):
+        """Fix common LLM JSON issues."""
+        text = re.sub(r',\s*}', '}', text)
+        text = re.sub(r',\s*]', ']', text)
+        return text
+
+    def _parse_response(self, raw):
+        """Parse JSON from LLM response with multiple fallback strategies."""
+        # Strategy 1: Direct parse
+        try:
+            return json.loads(self._clean_json(raw))
+        except json.JSONDecodeError:
+            pass
+
+        # Strategy 2: Extract JSON block from surrounding text
+        start = raw.find("{")
+        end = raw.rfind("}") + 1
+        if start != -1 and end > start:
+            try:
+                return json.loads(self._clean_json(raw[start:end]))
+            except json.JSONDecodeError:
+                pass
+
+        # Strategy 3: Try to find JSON in markdown code blocks
+        code_block = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', raw, re.DOTALL)
+        if code_block:
+            try:
+                return json.loads(self._clean_json(code_block.group(1)))
+            except json.JSONDecodeError:
+                pass
+
+        # All strategies failed
+        log.warning("Could not parse JSON from response: %s", raw[:200])
+        return {
+            "foods": [],
+            "total_calories": 0,
+            "total_protein_g": 0,
+            "total_carbs_g": 0,
+            "total_fat_g": 0,
+            "meal_description": raw[:500],
+            "parse_error": True,
+        }
 
     def analyze(self, image_path):
         """
         Analyze a meal photo and return structured nutrition estimate.
+        Works with both Ollama (local) and Groq (cloud).
+
         Returns dict with: foods, total_calories, protein, carbs, fat
         """
-        log.info("Analyzing meal image: %s", image_path)
-        base64_image = self.encode_image(image_path)
+        log.info("Analyzing meal image: %s (model: %s)", image_path, self.model)
 
-        response = self.client.chat.completions.create(
-            model=self.model,
-            messages=[
-                {
-                    "role": "user",
-                    "content": [
-                        {
-                            "type": "text",
-                            "text": """Analyze this meal photo. Identify each food item and estimate its nutritional content.
+        try:
+            base64_image = self._encode_image(image_path)
+        except FileNotFoundError as e:
+            log.error("Image file not found: %s", image_path)
+            raise
+
+        try:
+            response = self.client.chat.completions.create(
+                model=self.model,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": """Analyze this meal photo. Identify each food item and estimate its nutritional content.
 
 Respond ONLY with this exact JSON format, no other text:
 {
@@ -52,52 +116,32 @@ Respond ONLY with this exact JSON format, no other text:
     "total_fat_g": 00,
     "meal_description": "brief description of the overall meal"
 }"""
-                        },
-                        {
-                            "type": "image_url",
-                            "image_url": {
-                                "url": f"data:image/jpeg;base64,{base64_image}"
+                            },
+                            {
+                                "type": "image_url",
+                                "image_url": {
+                                    "url": f"data:image/jpeg;base64,{base64_image}"
+                                }
                             }
-                        }
-                    ]
-                }
-            ],
-            temperature=0.1, # Low = deterministic, factual
-        )
+                        ]
+                    }
+                ],
+                temperature=0.1,
+            )
+        except Exception as e:
+            log.error("LLM API call failed: %s", e)
+            raise
 
         raw = response.choices[0].message.content
+        log.debug("Raw LLM response: %s", raw[:300])
 
-        # Clean up common LLM JSON issues
-        def clean_json(text):
-            import re
-            # Remove trailing commas before } or ]
-            text = re.sub(r',\s*}', '}', text)
-            text = re.sub(r',\s*]', ']', text)
-            return text
+        result = self._parse_response(raw)
 
-        # Parse JSON from response
-        try:
-            result = json.loads(clean_json(raw))
-            log.info(
-                "Meal analyzed: %d kcal, %dg protein, %dg carbs, %dg fat | %s",
-                result.get("total_calories", 0),
-                result.get("total_protein_g", 0),
-                result.get("total_carbs_g", 0),
-                result.get("total_fat_g", 0),
-                result.get("meal_description", "")[:60],
-            )
-            return result
-        except json.JSONDecodeError:
-            # Find JSON block in the response
-            start = raw.find("{")
-            end = raw.rfind("}") + 1
-            if start != -1 and end > start:
-                try:
-                    result = json.loads(clean_json(raw[start:end]))
-                    log.warning("JSON extracted from partial response for %s", image_path)
-                    return result
-                except json.JSONDecodeError:
-                    pass
-            # If all parsing fails, raise
-            log.error("Failed to parse JSON response for image: %s", image_path)
-            raise MealAnalysisError(f"Could not parse vision model response for {image_path}")
+        if result.get("parse_error"):
+            log.warning("JSON parse failed for %s", image_path)
+        else:
+            log.info("Analysis complete: %d cal, %d foods detected",
+                     result.get("total_calories", 0),
+                     len(result.get("foods", [])))
+
+        return result

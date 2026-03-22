@@ -19,6 +19,8 @@ Requires-Dist: python-telegram-bot>=21.0
 Requires-Dist: mlflow>=2.16.0
 Requires-Dist: rich>=13.0.0
 Requires-Dist: whylogs
+Requires-Dist: prometheus-client
+Requires-Dist: groq
 Provides-Extra: dev
 Requires-Dist: pytest>=8.0.0; extra == "dev"
 Requires-Dist: ruff>=0.6.0; extra == "dev"

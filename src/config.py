@@ -20,3 +20,11 @@ DAILY_CARBS_TARGET = int(os.getenv("DAILY_CARBS_TARGET", "250"))
 DAILY_FAT_TARGET = int(os.getenv("DAILY_FAT_TARGET", "70"))
 LLM_TEMPERATURE= float(os.getenv("LLM_TEMPERATURE", "0.1"))
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+# Deployment mode: "local" (Ollama) or "cloud" (Groq)
+DEPLOYMENT_MODE = os.getenv("DEPLOYMENT_MODE", "local")
+
+# Groq (free cloud API)
+GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
+GROQ_BASE_URL = "https://api.groq.com/openai/v1"
+GROQ_VISION_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct"
+GROQ_LLM_MODEL = "llama-3.3-70b-versatile"

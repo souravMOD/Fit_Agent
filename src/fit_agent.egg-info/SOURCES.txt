@@ -16,6 +16,8 @@ src/tools/__init__.py
 src/tools/agent_tools.py
 src/tools/meal_analyzer.py
 src/tracking/__init__.py
+src/tracking/data_monitor.py
+src/tracking/metrics.py
 src/tracking/mlflow_tracker.py
 src/utils/__init__.py
 src/utils/exception.py
