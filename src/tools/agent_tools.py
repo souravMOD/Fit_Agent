@@ -143,3 +143,77 @@ def check_goals() -> str:
     }
     return json.dumps(remaining, indent=2)
 
+@tool
+def correct_last_meal(calories: int = None, protein_g: int = None, carbs_g: int = None, fat_g: int = None) -> str:
+    """Correct the most recently logged meal's nutrition values.
+    Use this when the user says the calorie estimate was wrong or wants to update their last meal.
+    Args:
+        calories: Corrected total calories (optional)
+        protein_g: Corrected protein in grams (optional)
+        carbs_g: Corrected carbs in grams (optional)
+        fat_g: Corrected fat in grams (optional)
+    """
+    conn = __import__('sqlite3').connect(db.db_path)
+    cursor = conn.execute(
+        "SELECT id, total_calories, total_protein_g, total_carbs_g, total_fat_g, meal_description FROM meals WHERE user_id = ? ORDER BY id DESC LIMIT 1",
+        (_current_user_id,),
+    )
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return json.dumps({"error": "No meals found to correct"})
+
+    meal_id = row[0]
+    old_cal = row[1]
+
+    new_cal = calories if calories is not None else row[1]
+    new_pro = protein_g if protein_g is not None else row[2]
+    new_carb = carbs_g if carbs_g is not None else row[3]
+    new_fat = fat_g if fat_g is not None else row[4]
+
+    conn.execute(
+        "UPDATE meals SET total_calories=?, total_protein_g=?, total_carbs_g=?, total_fat_g=? WHERE id=?",
+        (new_cal, new_pro, new_carb, new_fat, meal_id),
+    )
+    conn.commit()
+    conn.close()
+
+    return json.dumps({
+        "status": "corrected",
+        "meal": row[5],
+        "old_calories": old_cal,
+        "new_calories": new_cal,
+    })
+    
+    @tool
+def get_meal_history(limit: int = 5) -> str:
+    """Get the most recent meals with details.
+    Use this when the user asks about their recent meals or meal history.
+    Args:
+        limit: Number of recent meals to return
+    """
+    import sqlite3
+    conn = sqlite3.connect(db.db_path)
+    cursor = conn.execute(
+        """SELECT total_calories, total_protein_g, total_carbs_g, total_fat_g,
+                  meal_description, meal_type, timestamp, image_path
+           FROM meals WHERE user_id = ? ORDER BY id DESC LIMIT ?""",
+        (_current_user_id, limit),
+    )
+    meals = cursor.fetchall()
+    conn.close()
+
+    history = []
+    for m in meals:
+        history.append({
+            "calories": m[0],
+            "protein_g": m[1],
+            "carbs_g": m[2],
+            "fat_g": m[3],
+            "description": m[4],
+            "meal_type": m[5],
+            "time": m[6],
+            "image_path": m[7],
+        })
+
+    return json.dumps(history, indent=2)

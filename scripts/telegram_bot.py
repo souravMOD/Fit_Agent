@@ -238,6 +238,42 @@ async def goals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     await update.message.reply_text(text, parse_mode="Markdown")
     
+async def history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    telegram_id = str(update.effective_user.id)
+    user_id = db.get_or_create_user(telegram_id=telegram_id)
+
+    import sqlite3
+    conn = sqlite3.connect(db.db_path)
+    cursor = conn.execute(
+        """SELECT total_calories, meal_description, meal_type, timestamp, image_path
+           FROM meals WHERE user_id = ? ORDER BY id DESC LIMIT 5""",
+        (user_id,),
+    )
+    meals = cursor.fetchall()
+    conn.close()
+
+    if not meals:
+        await update.message.reply_text("No meal history yet. Send a food photo! 📷")
+        return
+
+    text = "📋 *Recent Meals*\n\n"
+    for m in meals:
+        cal, desc, mtype, ts, img = m
+        time_str = ts[11:16] if ts else ""
+        text += f"🕐 {time_str} | {mtype or 'meal'} | {cal} kcal\n"
+        text += f"   _{desc[:50]}_\n\n"
+
+    await update.message.reply_text(text, parse_mode="Markdown")
+
+    # Send photos if available
+    for m in meals:
+        img_path = m[4]
+        if img_path and Path(img_path).exists():
+            try:
+                await update.message.reply_photo(photo=open(img_path, "rb"))
+            except Exception:
+                pass
+    
 async def daily_notification(context: ContextTypes.DEFAULT_TYPE):
     """Send daily summary to all active users at 9 PM."""
     import sqlite3
@@ -310,6 +346,7 @@ def main():
     # Messages
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+    app.add_handler(CommandHandler("history", history_command))
 
     print("Bot is running!")
     app.run_polling()
