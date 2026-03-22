@@ -1,0 +1,14 @@
+artifact_uri: file:///media/sourav/1676e8af-6e44-48c1-b87a-c69739ec9d80/Project/fit-agent/mlruns/181751465241724523/783ddbd00b504d08a4b100f9f1b37b8e/artifacts
+end_time: 1774201307697
+entry_point_name: ''
+experiment_id: '181751465241724523'
+lifecycle_stage: active
+run_id: 783ddbd00b504d08a4b100f9f1b37b8e
+run_name: meal_20260322_184147
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1774201307687
+status: 3
+tags: []
+user_id: sourav
