@@ -334,6 +334,12 @@ def main():
     app.add_handler(CommandHandler("today", today_command))
     app.add_handler(CommandHandler("week", week_command))
     app.add_handler(CommandHandler("goals", goals_command))
+    app.add_handler(CommandHandler("history", history_command))
+
+    # Messages
+    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
+
     app.job_queue.run_daily(
         daily_notification,
         time=dt_time(hour=21, minute=0, second=0),
@@ -341,14 +347,6 @@ def main():
     )
 
     print("Bot is running! Daily notifications scheduled for 9 PM.")
-    app.run_polling()
-
-    # Messages
-    app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
-    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, handle_text))
-    app.add_handler(CommandHandler("history", history_command))
-
-    print("Bot is running!")
     app.run_polling()
 
 
