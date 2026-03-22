@@ -1,5 +1,7 @@
 # 💪 FitAgent
 
+## The app is live on telegram as @fitAgent_sourav_bot
+
 AI-powered fitness and nutrition agent. Send a photo of your meal, get instant calorie tracking and personalized advice.
 
 **100% local. 100% free. Multi-user. Telegram + Web.**

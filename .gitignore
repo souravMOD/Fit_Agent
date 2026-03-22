@@ -145,3 +145,5 @@ config.local.py
 *.bak
 *.tmp
 bot_token.txt
+*.docx
+*.pdf
