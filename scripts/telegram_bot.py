@@ -127,23 +127,27 @@ async def handle_photo(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await file.download_to_drive(str(image_path))
 
     # Run agent
-    result = agent.invoke({
-        "messages": [{
-            "role": "user",
-            "content": f"I just ate this meal. Please analyze and log it. Image path: {image_path}"
-        }]
-    })
+    try:
+        result = agent.invoke({
+            "messages": [{
+                "role": "user",
+                "content": f"I just ate this meal. Please analyze and log it. Image path: {image_path}"
+            }]
+        })
 
-    # Get final response
-    response = ""
-    for msg in result["messages"]:
-        if hasattr(msg, "content") and msg.content and not hasattr(msg, "tool_calls"):
-            response = msg.content
+        # Get final response
+        response = ""
+        for msg in result["messages"]:
+            if hasattr(msg, "content") and msg.content and not hasattr(msg, "tool_calls"):
+                response = msg.content
 
-    if response:
-        await update.message.reply_text(response)
-    else:
-        await update.message.reply_text("Meal logged! ✅")
+        if response:
+            await update.message.reply_text(response)
+        else:
+            await update.message.reply_text("Meal logged! ✅")
+    except Exception as e:
+        await update.message.reply_text("Sorry, I couldn't analyze the meal right now. Please try again later.")
+        print(f"Error in handle_photo: {e}")
 
 
 async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -152,20 +156,24 @@ async def handle_text(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = db.get_or_create_user(telegram_id=telegram_id, name=name)
     set_current_user(user_id)
 
-    result = agent.invoke({
-        "messages": [{
-            "role": "user",
-            "content": update.message.text
-        }]
-    })
+    try:
+        result = agent.invoke({
+            "messages": [{
+                "role": "user",
+                "content": update.message.text
+            }]
+        })
 
-    response = ""
-    for msg in result["messages"]:
-        if hasattr(msg, "content") and msg.content and not hasattr(msg, "tool_calls"):
-            response = msg.content
+        response = ""
+        for msg in result["messages"]:
+            if hasattr(msg, "content") and msg.content and not hasattr(msg, "tool_calls"):
+                response = msg.content
 
-    if response:
-        await update.message.reply_text(response)
+        if response:
+            await update.message.reply_text(response)
+    except Exception as e:
+        await update.message.reply_text("Sorry, I couldn't process your message right now. Please try again later.")
+        print(f"Error in handle_text: {e}")
 
 
 async def today_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -308,6 +316,22 @@ async def daily_notification(context: ContextTypes.DEFAULT_TYPE):
             print(f"Failed to notify {name}: {e}")
 
 
+async def error_handler(update: object, context: ContextTypes.DEFAULT_TYPE) -> None:
+    import logging
+    logger = logging.getLogger(__name__)
+    logger.error("Exception while handling an update:", exc_info=context.error)
+
+    # Send error message to user if possible
+    if update and hasattr(update, 'effective_chat') and update.effective_chat:
+        try:
+            await context.bot.send_message(
+                chat_id=update.effective_chat.id,
+                text="Sorry, an error occurred while processing your request. Please try again."
+            )
+        except Exception:
+            pass  # Avoid recursive errors
+
+
 def main():
     if not TELEGRAM_BOT_TOKEN:
         print("ERROR: Set TELEGRAM_BOT_TOKEN in your .env file")
@@ -315,6 +339,8 @@ def main():
 
     print("Starting FitAgent Telegram bot...")
     app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+    app.add_error_handler(error_handler)
 
     # Onboarding conversation
     onboarding = ConversationHandler(
