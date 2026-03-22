@@ -1,7 +1,10 @@
 from langchain_openai import ChatOpenAI
 from langgraph.graph import StateGraph, MessagesState, START, END
 from langgraph.prebuilt import ToolNode, tools_condition
-from src.config import OLLAMA_BASE_URL, LLM_MODEL, LLM_TEMPERATURE
+from src.config import (
+    OLLAMA_BASE_URL, LLM_MODEL, LLM_TEMPERATURE,
+    DEPLOYMENT_MODE, GROQ_API_KEY, GROQ_BASE_URL, GROQ_LLM_MODEL,
+)
 from src.tools.agent_tools import (
     analyze_and_log_meal,
     log_meal_manually,
@@ -21,12 +24,20 @@ log = get_logger(__name__)
 
 
 # The LLM that powers the agent
-llm = ChatOpenAI(
-    base_url=OLLAMA_BASE_URL,
-    model=LLM_MODEL,
-    temperature=LLM_TEMPERATURE,
-    api_key="not-needed",
-).bind_tools(tools)
+if DEPLOYMENT_MODE == "cloud":
+    llm = ChatOpenAI(
+        base_url=GROQ_BASE_URL,
+        model=GROQ_LLM_MODEL,
+        temperature=LLM_TEMPERATURE,
+        api_key=GROQ_API_KEY,
+    ).bind_tools(tools)
+else:
+    llm = ChatOpenAI(
+        base_url=OLLAMA_BASE_URL,
+        model=LLM_MODEL,
+        temperature=LLM_TEMPERATURE,
+        api_key="not-needed",
+    ).bind_tools(tools)
 
 
 SYSTEM_PROMPT = """You are FitAgent, a personal fitness and nutrition assistant.
