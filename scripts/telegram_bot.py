@@ -10,6 +10,7 @@ from telegram.ext import Application, CommandHandler, MessageHandler, filters, C
 from src.agent.graph import agent
 from src.database.meal_db import MealDatabase
 from src.tools.agent_tools import set_current_user
+from datetime import time as dt_time
 from src.config import TELEGRAM_BOT_TOKEN, MEAL_IMAGES_DIR
 
 MEAL_IMAGES_DIR.mkdir(parents=True, exist_ok=True)
@@ -236,6 +237,39 @@ async def goals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         text += f"\nYou've reached your calorie target for today!"
 
     await update.message.reply_text(text, parse_mode="Markdown")
+    
+async def daily_notification(context: ContextTypes.DEFAULT_TYPE):
+    """Send daily summary to all active users at 9 PM."""
+    import sqlite3
+    conn = sqlite3.connect(db.db_path)
+    cursor = conn.execute("SELECT id, telegram_id, name FROM users WHERE telegram_id IS NOT NULL")
+    users = cursor.fetchall()
+    conn.close()
+
+    for user_id, telegram_id, name in users:
+        if not telegram_id or telegram_id.startswith("streamlit"):
+            continue
+
+        summary = db.get_daily_summary(user_id)
+        targets = db.get_user_targets(user_id)
+
+        if summary["meal_count"] == 0:
+            text = f"Hey {name}! You haven't logged any meals today. Don't forget to track! 📷"
+        else:
+            remaining = targets["calorie_target"] - summary["total_calories"]
+            text = f"📊 *Daily Summary for {name}*\n\n"
+            text += f"🔥 Calories: {summary['total_calories']} / {targets['calorie_target']} kcal\n"
+            text += f"🥩 Protein: {summary['total_protein_g']}g / {targets['protein_target']}g\n"
+            text += f"🍽️ Meals: {summary['meal_count']}\n"
+            if remaining > 0:
+                text += f"\n✅ {remaining} kcal remaining"
+            else:
+                text += f"\n⚠️ {abs(remaining)} kcal over target"
+
+        try:
+            await context.bot.send_message(chat_id=telegram_id, text=text, parse_mode="Markdown")
+        except Exception as e:
+            print(f"Failed to notify {name}: {e}")
 
 
 def main():
@@ -264,6 +298,14 @@ def main():
     app.add_handler(CommandHandler("today", today_command))
     app.add_handler(CommandHandler("week", week_command))
     app.add_handler(CommandHandler("goals", goals_command))
+    app.job_queue.run_daily(
+        daily_notification,
+        time=dt_time(hour=21, minute=0, second=0),
+        name="daily_summary",
+    )
+
+    print("Bot is running! Daily notifications scheduled for 9 PM.")
+    app.run_polling()
 
     # Messages
     app.add_handler(MessageHandler(filters.PHOTO, handle_photo))
